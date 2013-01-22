@@ -59,6 +59,12 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
     /** Redmine Default Salt Field */
     private static final String DEFAULT_SALT_FIELD = "salt";
 
+    /** Connection String Format: MySQL */
+    private static final String CONNECTION_STRING_FORMAT_MYSQL = "jdbc:mysql://%s:%s/%s";
+
+    /** JDBC Driver Name: MySQL */
+    private static final String JDBC_DRIVER_NAME_MYSQL = "com.mysql.jdbc.Driver";
+
     /** Logger */
     private static final Logger LOGGER = Logger.getLogger(RedmineSecurityRealm.class.getName());
 
@@ -94,17 +100,17 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
 
 
     /**
-     *
-     * @param dbServer
-     * @param databaseName
-     * @param port
-     * @param dbUserName
-     * @param dbPassword
-     * @param version
-     * @param loginTable
-     * @param userField
-     * @param passField
-     * @param saltField
+     * Constructor
+     * @param dbServer DB Server
+     * @param databaseName Database Name
+     * @param port Database Port
+     * @param dbUserName Database UserName
+     * @param dbPassword Redmine Version
+     * @param version Redmine Version
+     * @param loginTable Redmine Login Table
+     * @param userField Redmine User Field
+     * @param passField Redmine Password Field
+     * @param saltField Redmine Salt Field
      */
     @DataBoundConstructor
     public RedmineSecurityRealm(String dbServer, String databaseName, String port, String dbUserName, String dbPassword,
@@ -130,7 +136,7 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
     public static final class DescriptorImpl extends Descriptor<SecurityRealm> {
         @Override
         public String getHelpFile() {
-            return "/plugin/redmine-mysql-auth-plugin/help/overview.html";
+            return "/plugin/redmine-mysql-auth/help/overview.html";
         }
 
         @Override
@@ -162,13 +168,23 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
 
     /**
      *
-     * @param username
-     * @param password
+     * @param username Login UserName
+     * @param password Login Password
      */
     @Override
     protected UserDetails authenticate(String username, String password) throws AuthenticationException {
+        Connection conn = null;
+
         try {
-            RedmineUserData userData = getRedmineUserData(username);
+            conn = getConnection();
+
+            if (!isLoginTable(conn))
+                throw new RedmineAuthenticationException("RedmineSecurity: Invalid Login Table -");
+
+            if (!isUserField(conn))
+                throw new RedmineAuthenticationException("RedmineSecurity: Invalid User Field -");
+
+            RedmineUserData userData = getRedmineUserData(conn, username);
 
             if (userData == null) {
                 LOGGER.warning("RedmineSecurity: Invalid Username");
@@ -194,13 +210,27 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
             throw e;
         } catch (Exception e) {
             throw new RedmineAuthenticationException("RedmineSecurity: System.Exception", e);
+        } finally {
+            if (conn != null) {
+                try { conn.close(); } catch (Exception e) {}
+            }
         }
     }
 
     @Override
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException, DataAccessException {
+        Connection conn = null;
+
         try {
-            RedmineUserData userData = getRedmineUserData(username);
+            conn = getConnection();
+
+            if (!isLoginTable(conn))
+                throw new RedmineAuthenticationException("RedmineSecurity: Invalid Login Table -");
+
+            if (!isUserField(conn))
+                throw new RedmineAuthenticationException("RedmineSecurity: Invalid User Field -");
+
+            RedmineUserData userData = getRedmineUserData(conn, username);
 
             if (userData == null) {
                 LOGGER.warning("RedmineSecurity: Invalid Username");
@@ -212,6 +242,10 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
             throw e;
         } catch (Exception e) {
             throw new RedmineAuthenticationException("RedmineSecurity: System.Exception", e);
+        } finally {
+            if (conn != null) {
+                try { conn.close(); } catch (Exception e) {}
+            }
         }
     }
 
@@ -230,10 +264,10 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
         Connection conn = null;
 
         try {
-            String connectionString = String.format("jdbc:mysql://%s:%s/%s", this.dbServer, this.port, this.databaseName);
+            String connectionString = String.format(CONNECTION_STRING_FORMAT_MYSQL, this.dbServer, this.port, this.databaseName);
             LOGGER.info("RedmineSecurity: Connection String - " + connectionString);
 
-            Class.forName("com.mysql.jdbc.Driver").newInstance();
+            Class.forName(JDBC_DRIVER_NAME_MYSQL).newInstance();
             conn = DriverManager.getConnection(connectionString, this.dbUserName, this.dbPassword);
 
             LOGGER.info("RedmineSecurity: Connection established.");
@@ -246,6 +280,85 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
         }
     }
 
+    /**
+     * LoginTable Check
+     * @param conn
+     * @return
+     * @throws RedmineAuthenticationException
+     */
+    private boolean isLoginTable(Connection conn) throws RedmineAuthenticationException {
+        PreparedStatement state = null;
+        ResultSet results = null;
+
+        try {
+            String query = "SHOW TABLES";
+            state = conn.prepareStatement(query);
+            results = state.executeQuery();
+
+            if (results == null)
+                return false;
+
+            while (results.next()) {
+                if (results.getString(1).equals(this.loginTable))
+                    return true;
+            }
+
+            return false;
+        } catch (RedmineAuthenticationException e) {
+            throw e;
+        } catch (SQLException e) {
+            throw new RedmineAuthenticationException("RedmineSecurity: LoginTable Check Error", e);
+        } catch (Exception e) {
+            throw new RedmineAuthenticationException("RedmineSecurity: LoginTable Check Error", e);
+        } finally {
+            if (results != null) {
+                try { results.close(); } catch (Exception e) {}
+            }
+            if (state != null) {
+                try { state.close(); } catch (Exception e) {}
+            }
+        }
+    }
+
+    /**
+     * UserField Check
+     * @param conn
+     * @return
+     * @throws RedmineAuthenticationException
+     */
+    private boolean isUserField(Connection conn) throws RedmineAuthenticationException {
+        PreparedStatement state = null;
+        ResultSet results = null;
+
+        try {
+            String query = String.format("SHOW FIELDS FROM %s", this.loginTable);
+            state = conn.prepareStatement(query);
+            results = state.executeQuery();
+
+            if (results == null)
+                return false;
+
+            while (results.next()) {
+                if (results.getString(1).equals(this.userField))
+                    return true;
+            }
+
+            return false;
+        } catch (RedmineAuthenticationException e) {
+            throw e;
+        } catch (SQLException e) {
+            throw new RedmineAuthenticationException("RedmineSecurity: Table Check Error", e);
+        } catch (Exception e) {
+            throw new RedmineAuthenticationException("RedmineSecurity: Table Check Error", e);
+        } finally {
+            if (results != null) {
+                try { results.close(); } catch (Exception e) {}
+            }
+            if (state != null) {
+                try { state.close(); } catch (Exception e) {}
+            }
+        }
+    }
 
     /**
      *
@@ -253,14 +366,11 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
      * @return
      * @throws RedmineAuthenticationException
      */
-    private RedmineUserData getRedmineUserData(String username) throws RedmineAuthenticationException {
-        Connection conn = null;
+    private RedmineUserData getRedmineUserData(Connection conn, String username) throws RedmineAuthenticationException {
         PreparedStatement state = null;
         ResultSet results = null;
 
         try {
-            conn = getConnection();
-
             String query = String.format("SELECT * FROM %s WHERE %s = ?", this.loginTable, this.userField);
 
             state = conn.prepareStatement(query);
@@ -293,20 +403,11 @@ public class RedmineSecurityRealm extends AbstractPasswordBasedSecurityRealm {
             throw new RedmineAuthenticationException("RedmineSecurity: Query Error", e);
         } finally {
             if (results != null) {
-                try {
-                    results.close();
-                } catch (Exception e) {}
+                try { results.close(); } catch (Exception e) {}
             }
             if (state != null) {
-                try {
-                    state.close();
-                } catch (Exception e) {}
+                try { state.close(); } catch (Exception e) {}
             }
-             if (conn != null) {
-                 try {
-                     conn.close();
-                 } catch (Exception e) {}
-             }
         }
     }
 

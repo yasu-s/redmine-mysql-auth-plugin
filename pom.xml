@@ -6,7 +6,7 @@
     <version>1.466</version>
   </parent>
 
-  <artifactId>redmine-mysql-auth-plugin</artifactId>
+  <artifactId>redmine-mysql-auth</artifactId>
   <version>1.0-SNAPSHOT</version>
   <packaging>hpi</packaging>
   <name>Jenkins Redmine MySQL Authentication Plugin</name>
