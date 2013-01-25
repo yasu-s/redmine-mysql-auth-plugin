@@ -22,14 +22,16 @@
 
         <label>
             <f:radio name="authenticator.version" value="1.2.0" id="auth.1.2.0"
-                     checked="${instance.version == '1.2.0' || empty instance.version}" />
+                     checked="${instance.version == '1.2.0' || empty instance.version}"
+                     onclick="$('saltField').disabled=false" />
             ${%Version.1_2_0}
         </label>
         <br />
 
         <label>
             <f:radio name="authenticator.version" value="1.1.3" id="auth.1.1.3"
-                     checked="${instance.version == '1.1.3'}" />
+                     checked="${instance.version == '1.1.3'}"
+                     onclick="$('saltField').disabled=true" />
             ${%Version.1_1_3}
         </label>
         <br />
@@ -46,7 +48,14 @@
             <f:textbox name="authenticator.passField" value="${instance.passField}" default="hashed_password" />
         </f:entry>
         <f:entry title="${%SaltField}" field="saltField">
-            <f:textbox name="authenticator.saltField" value="${instance.saltField}" default="salt" />
+            <j:choose>
+                <j:when test="${instance.version == '1.2.0' || empty instance.version}">
+                    <f:textbox name="authenticator.saltField" value="${instance.saltField}" default="salt" id="saltField" />
+                </j:when>
+                <j:otherwise>
+                    <f:textbox name="authenticator.saltField" value="${instance.saltField}" default="salt" id="saltField" disabled="disabled" />
+                </j:otherwise>
+            </j:choose>
         </f:entry>
     </f:advanced>
 </j:jelly>
